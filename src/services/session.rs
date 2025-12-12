@@ -11,12 +11,13 @@ pub struct SessionService;
 impl SessionService {
     const SESSION_KEY_PREFIX: &'static str = "session:";
     const CODE_INDEX_PREFIX: &'static str = "code_index:";
+    const CREATOR_INDEX_PREFIX: &'static str = "creator_sessions:";
 
     /// Create a new session and store in Redis
     pub async fn create_session(
         state: &AppState,
         session: Session,
-        code: &str,
+        _code: &str,
     ) -> Result<()> {
         let session_key = format!("{}:{}", Self::SESSION_KEY_PREFIX, session.session_id);
         let code_hmac = &session.code_hmac;
@@ -30,12 +31,21 @@ impl SessionService {
         let ttl = state.config.session_ttl().as_secs();
 
         // Store session
-        conn.set_ex(&session_key, session_json, ttl)
+        conn.set_ex::<_, _, ()>(&session_key, session_json, ttl)
             .await
             .map_err(|e| AppError::Redis(e.to_string()))?;
 
         // Store code index
-        conn.set_ex(&code_index_key, session.session_id.to_string(), ttl)
+        conn.set_ex::<_, _, ()>(&code_index_key, session.session_id.to_string(), ttl)
+            .await
+            .map_err(|e| AppError::Redis(e.to_string()))?;
+
+        // Add to creator index (set of session IDs for this creator)
+        let creator_index_key = format!("{}:{}", Self::CREATOR_INDEX_PREFIX, session.creator_client_id);
+        conn.sadd::<_, _, ()>(&creator_index_key, session.session_id.to_string())
+            .await
+            .map_err(|e| AppError::Redis(e.to_string()))?;
+        conn.expire::<_, ()>(&creator_index_key, ttl as i64)
             .await
             .map_err(|e| AppError::Redis(e.to_string()))?;
 
@@ -174,16 +184,16 @@ impl SessionService {
                 .map_err(|e| AppError::Internal(anyhow::anyhow!("Serialization error: {}", e)))?;
 
             let ttl = conn.ttl(&session_key).await.unwrap_or(0);
-            conn.set(&session_key, updated_json).await.map_err(|e| AppError::Redis(e.to_string()))?;
+            conn.set::<_, _, ()>(&session_key, updated_json).await.map_err(|e| AppError::Redis(e.to_string()))?;
             if ttl > 0 {
-                conn.expire(&session_key, ttl)
+                conn.expire::<_, ()>(&session_key, ttl)
                     .await
                     .map_err(|e| AppError::Redis(e.to_string()))?;
             }
 
             // Delete code index
             let code_index_key = format!("{}:{}", Self::CODE_INDEX_PREFIX, session.code_hmac);
-            conn.del(&code_index_key).await.map_err(|e| AppError::Redis(e.to_string()))?;
+            conn.del::<_, ()>(&code_index_key).await.map_err(|e| AppError::Redis(e.to_string()))?;
         }
 
         Ok(())
@@ -198,9 +208,9 @@ impl SessionService {
             .map_err(|e| AppError::Internal(anyhow::anyhow!("Serialization error: {}", e)))?;
 
         let ttl = conn.ttl(&session_key).await.unwrap_or(0);
-        conn.set(&session_key, session_json).await.map_err(|e| AppError::Redis(e.to_string()))?;
+        conn.set::<_, _, ()>(&session_key, session_json).await.map_err(|e| AppError::Redis(e.to_string()))?;
         if ttl > 0 {
-            conn.expire(&session_key, ttl)
+            conn.expire::<_, ()>(&session_key, ttl)
                 .await
                 .map_err(|e| AppError::Redis(e.to_string()))?;
         }
@@ -212,5 +222,92 @@ impl SessionService {
     pub fn get_code_hmac_prefix_for_rate_limit(_state: &AppState, code_hmac: &str) -> String {
         // Use first 6 characters for rate limiting
         get_code_hmac_prefix(code_hmac, 6)
+    }
+
+    /// Delete session and code_index from Redis
+    pub async fn delete_session(state: &AppState, session_id: &Uuid) -> Result<()> {
+        let session_key = format!("{}:{}", Self::SESSION_KEY_PREFIX, session_id);
+        let mut conn = state.redis.get().await.map_err(|e| AppError::Redis(e.to_string()))?;
+
+        // Get session to find code_hmac before deleting
+        let session_json: Option<String> = conn.get(&session_key).await.map_err(|e| AppError::Redis(e.to_string()))?;
+        
+        if let Some(json) = session_json {
+            let session: Session = serde_json::from_str(&json)
+                .map_err(|e| AppError::Internal(anyhow::anyhow!("Deserialization error: {}", e)))?;
+            
+            // Delete code index
+            let code_index_key = format!("{}:{}", Self::CODE_INDEX_PREFIX, session.code_hmac);
+            conn.del::<_, ()>(&code_index_key).await.map_err(|e| AppError::Redis(e.to_string()))?;
+
+            // Remove from creator index
+            let creator_index_key = format!("{}:{}", Self::CREATOR_INDEX_PREFIX, session.creator_client_id);
+            conn.srem::<_, _, ()>(&creator_index_key, session.session_id.to_string())
+                .await
+                .map_err(|e| AppError::Redis(e.to_string()))?;
+        }
+
+        // Delete session
+        conn.del::<_, ()>(&session_key).await.map_err(|e| AppError::Redis(e.to_string()))?;
+
+        Ok(())
+    }
+
+    /// Cleanup old sessions for a creator client_id (when creating new session)
+    pub async fn cleanup_old_sessions_for_creator(
+        state: &AppState,
+        creator_client_id: &str,
+    ) -> Result<()> {
+        let creator_index_key = format!("{}:{}", Self::CREATOR_INDEX_PREFIX, creator_client_id);
+        let mut conn = state.redis.get().await.map_err(|e| AppError::Redis(e.to_string()))?;
+
+        // Get all session IDs for this creator
+        let session_ids: Vec<String> = conn
+            .smembers(&creator_index_key)
+            .await
+            .map_err(|e| AppError::Redis(e.to_string()))?;
+
+        if session_ids.is_empty() {
+            return Ok(());
+        }
+
+        // Cleanup each old session that is not used and has no other participants
+        let mut cleaned_count = 0;
+        for session_id_str in session_ids {
+            if let Ok(session_id) = Uuid::parse_str(&session_id_str) {
+                match Self::get_session(state, &session_id).await {
+                    Ok(session) => {
+                        // Only cleanup if:
+                        // 1. Session is not used
+                        // 2. Only has creator as participant (no other participants joined)
+                        if !session.used && session.participants.len() == 1 {
+                            // Verify it's the creator
+                            if session.participants[0].client_id == creator_client_id {
+                                if let Err(e) = Self::delete_session(state, &session_id).await {
+                                    tracing::warn!("Failed to cleanup old session {}: {}", session_id, e);
+                                } else {
+                                    cleaned_count += 1;
+                                    // Remove from creator index
+                                    let _ = conn.srem::<_, _, ()>(&creator_index_key, &session_id_str).await;
+                                }
+                            }
+                        }
+                    }
+                    Err(AppError::SessionNotFound) | Err(AppError::SessionExpired) => {
+                        // Session already deleted or expired, remove from index
+                        let _ = conn.srem::<_, _, ()>(&creator_index_key, &session_id_str).await;
+                    }
+                    Err(_) => {
+                        // Other errors, skip
+                    }
+                }
+            }
+        }
+
+        if cleaned_count > 0 {
+            tracing::info!("Cleaned up {} old sessions for creator {}", cleaned_count, creator_client_id);
+        }
+
+        Ok(())
     }
 }
