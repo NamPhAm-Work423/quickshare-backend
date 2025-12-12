@@ -76,11 +76,16 @@ pub async fn create_session(
         base_url.pop();
     }
 
+    let mut ws_path = state.config.server.ws_path.clone();
+    // Remove trailing question mark or other separators if present
+    while ws_path.ends_with(&['?', '&', '='][..]) {
+        ws_path.pop();
+    }
+
     let ws_url = format!(
-        "{}{}{}?session_id={}&client_id={}",
+        "{}{}?session_id={}&client_id={}",
         base_url,
-        state.config.server.ws_path,
-        if state.config.server.ws_path.contains('?') { "&" } else { "?" },
+        ws_path,
         session_id,
         creator_client_id
     );
@@ -168,11 +173,16 @@ pub async fn join_session(
         base_url.pop();
     }
 
+    let mut ws_path = state.config.server.ws_path.clone();
+    // Remove trailing question mark or other separators if present
+    while ws_path.ends_with(&['?', '&', '='][..]) {
+        ws_path.pop();
+    }
+
     let ws_url = format!(
-        "{}{}{}?session_id={}&client_id={}&token={}",
+        "{}{}?session_id={}&client_id={}&token={}",
         base_url,
-        state.config.server.ws_path,
-        if state.config.server.ws_path.contains('?') { "&" } else { "?" },
+        ws_path,
         updated_session.session_id,
         receiver_client_id,
         ws_token
