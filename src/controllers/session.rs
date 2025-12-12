@@ -70,11 +70,17 @@ pub async fn create_session(
     let ice_servers = build_ice_servers(&state);
 
     // Build WebSocket URL from config
+    let mut base_url = state.config.websocket.base_url.clone();
+    // Remove trailing slash if present
+    if base_url.ends_with('/') {
+        base_url.pop();
+    }
+
     let ws_url = format!(
-        "{}:{}{}?session_id={}&client_id={}",
-        state.config.websocket.base_url,
-        state.config.server.port,
+        "{}{}{}?session_id={}&client_id={}",
+        base_url,
         state.config.server.ws_path,
+        if state.config.server.ws_path.contains('?') { "&" } else { "?" },
         session_id,
         creator_client_id
     );
@@ -156,11 +162,17 @@ pub async fn join_session(
     let ice_servers = build_ice_servers(&state);
 
     // Build WebSocket URL from config
+    let mut base_url = state.config.websocket.base_url.clone();
+    // Remove trailing slash if present
+    if base_url.ends_with('/') {
+        base_url.pop();
+    }
+
     let ws_url = format!(
-        "{}:{}{}?session_id={}&client_id={}&token={}",
-        state.config.websocket.base_url,
-        state.config.server.port,
+        "{}{}{}?session_id={}&client_id={}&token={}",
+        base_url,
         state.config.server.ws_path,
+        if state.config.server.ws_path.contains('?') { "&" } else { "?" },
         updated_session.session_id,
         receiver_client_id,
         ws_token
