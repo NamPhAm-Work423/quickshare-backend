@@ -1,5 +1,5 @@
 [package]
-name = "nameshare-backend"
+name = "quickshare-backend"
 version = "0.1.0"
 edition = "2021"
 authors = ["Nameshare Team"]
@@ -17,9 +17,10 @@ tokio = { version = "1", features = ["full"] }
 tokio-util = { version = "0.7", features = ["io", "codec"] }
 
 # Redis
-deadpool-redis = "0.15"
-redis = { version = "0.26", features = ["tokio-comp", "connection-manager"] }
-
+deadpool-redis = { version = "0.18" }
+redis = { version = "0.27", default-features = false, features = ["tokio-comp", "connection-manager", "tokio-rustls-comp"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "logging", "tls12"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "logging", "tls12"] }
 # Cryptography
 hmac = "0.12"
 sha2 = "0.10"
@@ -46,6 +47,9 @@ dotenvy = "0.15"
 base64 = "0.22"
 hex = "0.4"
 
+# OpenSSL vendored for musl builds
+openssl-sys = { version = "0.9", features = ["vendored"] }
+
 # Utilities
 bytes = "1"
 futures = "0.3"
@@ -62,5 +66,5 @@ mockall = "0.13"
 tempfile = "3"
 
 [[bin]]
-name = "nameshare-backend"
+name = "quickshare-backend"
 path = "src/main.rs"

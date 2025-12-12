@@ -7,20 +7,8 @@ services:
       - "3001:3001"
     env_file:
       - ./.env
-    environment:
-      - NAMESHARE_REDIS__URL=redis://redis:6379
     depends_on:
-      - redis
       - coturn
-    restart: unless-stopped
-
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
     restart: unless-stopped
 
   coturn:
@@ -29,12 +17,10 @@ services:
       - "3478:3478/udp"
       - "3478:3478/tcp"
     environment:
-      - TURN_USERNAME=${TURN_USERNAME:-nameshare}
+      - TURN_USERNAME=${TURN_USERNAME:-quickshare}
       - TURN_PASSWORD=${TURN_PASSWORD:-change-me-in-production}
     volumes:
       - ./coturn/turnserver.conf:/etc/turnserver.conf:ro
     command: turnserver -c /etc/turnserver.conf
     restart: unless-stopped
 
-volumes:
-  redis_data:

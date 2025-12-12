@@ -78,6 +78,9 @@ fn default_websocket() -> WebSocketConfig {
     WebSocketConfig {
         base_url: default_ws_base_url(),
         channel_size: default_ws_channel_size(),
+        max_message_size_bytes: default_ws_max_message_size(),
+        heartbeat_interval_seconds: default_ws_heartbeat_interval(),
+        connection_timeout_seconds: default_ws_connection_timeout(),
     }
 }
 
@@ -87,6 +90,18 @@ fn default_ws_base_url() -> String {
 
 fn default_ws_channel_size() -> usize {
     100
+}
+
+fn default_ws_max_message_size() -> usize {
+    64 * 1024 // 64KB
+}
+
+fn default_ws_heartbeat_interval() -> u64 {
+    30 // 30 seconds
+}
+
+fn default_ws_connection_timeout() -> u64 {
+    300 // 5 minutes
 }
 
 fn default_code_generator() -> CodeGeneratorConfig {
@@ -204,6 +219,12 @@ pub struct WebSocketConfig {
     pub base_url: String,
     #[serde(default = "default_ws_channel_size")]
     pub channel_size: usize,
+    #[serde(default = "default_ws_max_message_size")]
+    pub max_message_size_bytes: usize,
+    #[serde(default = "default_ws_heartbeat_interval")]
+    pub heartbeat_interval_seconds: u64,
+    #[serde(default = "default_ws_connection_timeout")]
+    pub connection_timeout_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -220,8 +241,15 @@ impl Config {
 
         use figment::{providers::Env, Figment};
 
+        // Support REDIS_URL (Upstash format) - convert to REDIS__URL format if not already set
+        if std::env::var("REDIS__URL").is_err() {
+            if let Ok(redis_url) = std::env::var("REDIS_URL") {
+                std::env::set_var("REDIS__URL", redis_url);
+            }
+        }
+
         let mut config: Config = Figment::new()
-            .merge(Env::prefixed("NAMESHARE_").split("__"))
+            .merge(Env::raw().split("__"))
             .extract()?;
 
         // Set defaults if not provided
@@ -252,7 +280,7 @@ impl Config {
 
         // Validate required fields
         if config.security.master_hmac_key.is_empty() {
-            return Err(figment::Error::from("NAMESHARE_SECURITY__MASTER_HMAC_KEY is required"));
+            return Err(figment::Error::from("SECURITY__MASTER_HMAC_KEY is required"));
         }
 
         Ok(config)

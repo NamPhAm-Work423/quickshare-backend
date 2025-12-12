@@ -44,6 +44,10 @@ pub async fn create_session(
     // Determine single_use
     let single_use = req.single_use.unwrap_or(state.config.session.single_use_default);
 
+    // Cleanup old sessions for this creator (best-effort, non-blocking)
+    // This prevents accumulation of orphaned sessions
+    let _ = SessionService::cleanup_old_sessions_for_creator(&state, &creator_client_id).await;
+
     // Create session
     let mut session = Session::new(session_id, code_hmac, creator_client_id.clone(), ttl_seconds, single_use);
 

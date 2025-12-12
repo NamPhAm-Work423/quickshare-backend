@@ -44,7 +44,7 @@ impl RateLimiter {
         state: &AppState,
         key: &str,
         limit: u32,
-        window_seconds: u64,
+        _window_seconds: u64,
     ) -> Result<bool> {
         let mut conn = state.redis.get().await.map_err(|e| AppError::Redis(e.to_string()))?;
 
@@ -65,7 +65,7 @@ impl RateLimiter {
 
         // Set TTL if this is the first increment
         if count == 1 {
-            conn.expire(key, ttl_seconds as i64)
+            conn.expire::<_, ()>(key, ttl_seconds as i64)
                 .await
                 .map_err(|e| AppError::Redis(e.to_string()))?;
         }

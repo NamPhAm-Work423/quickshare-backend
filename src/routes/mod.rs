@@ -8,6 +8,7 @@ use axum::{
     http::StatusCode,
     response::IntoResponse,
 };
+use tower_http::limit::RequestBodyLimitLayer;
 
 #[derive(Clone)]
 pub struct RouterState {
@@ -29,6 +30,9 @@ pub fn create_router(state: AppState, conn_manager: ConnectionManager) -> Router
     // Create production-ready CORS layer from configuration
     let cors = create_cors_layer(&state.config.cors);
 
+    // Set request body size limit (1MB for session creation/join)
+    let body_limit = RequestBodyLimitLayer::new(1024 * 1024); // 1MB
+
     Router::new()
         .route("/health", get(health::health_check))
         .route("/api/session/create", 
@@ -40,6 +44,7 @@ pub fn create_router(state: AppState, conn_manager: ConnectionManager) -> Router
                 .on(MethodFilter::OPTIONS, handle_options)
         )
         .route("/ws", get(websocket::handle_websocket))
+        .layer(body_limit)
         .layer(cors)
         .with_state(router_state)
 }

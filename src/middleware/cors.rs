@@ -1,5 +1,6 @@
 use crate::config::CorsConfig;
-use tower_http::cors::{AllowHeaders, AllowOrigin, Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use http::header;
 use tracing::{info, warn};
 
 /// Creates a production-ready CORS layer based on configuration
@@ -65,9 +66,19 @@ fn create_single_origin_cors(origin: &str) -> CorsLayer {
             http::Method::PATCH,
             http::Method::HEAD,
         ])
-        .allow_headers(AllowHeaders::any())
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::ACCEPT,
+            header::ACCEPT_LANGUAGE,
+            header::ACCEPT_ENCODING,
+            header::CACHE_CONTROL,
+        ])
         .allow_credentials(true)
-        .expose_headers(Any)
+        .expose_headers([
+            header::CONTENT_TYPE,
+            header::CONTENT_LENGTH,
+        ])
         .max_age(std::time::Duration::from_secs(3600))
 }
 
@@ -102,9 +113,19 @@ fn create_multiple_origins_cors(origins: Vec<String>) -> CorsLayer {
             http::Method::PATCH,
             http::Method::HEAD,
         ])
-        .allow_headers(AllowHeaders::any())
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::ACCEPT,
+            header::ACCEPT_LANGUAGE,
+            header::ACCEPT_ENCODING,
+            header::CACHE_CONTROL,
+        ])
         .allow_credentials(true)
-        .expose_headers(Any)
+        .expose_headers([
+            header::CONTENT_TYPE,
+            header::CONTENT_LENGTH,
+        ])
         .max_age(std::time::Duration::from_secs(3600))
 }
 

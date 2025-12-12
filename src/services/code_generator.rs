@@ -1,7 +1,7 @@
 use crate::error::{AppError, Result};
 use crate::state::AppState;
 use deadpool_redis::redis::AsyncCommands;
-use rand::Rng;
+use rand::{Rng, rngs::OsRng};
 use std::time::Duration;
 use tracing::warn;
 
@@ -27,7 +27,7 @@ impl CodeGenerator {
 
             if locked {
                 // Set expiration on the lock
-                conn.expire(&lock_key, lock_ttl as i64)
+                conn.expire::<_, ()>(&lock_key, lock_ttl as i64)
                     .await
                     .map_err(|e| AppError::Redis(e.to_string()))?;
 
@@ -37,7 +37,7 @@ impl CodeGenerator {
             if attempt < max_retries - 1 {
                 warn!("Code collision detected: {}, retrying...", code);
                 // Small random delay to avoid thundering herd
-                let delay = rand::thread_rng().gen_range(
+                let delay = OsRng.gen_range(
                     state.config.code_generator.collision_delay_min_ms
                         ..=state.config.code_generator.collision_delay_max_ms
                 );
@@ -50,8 +50,7 @@ impl CodeGenerator {
 
     /// Generate a random 6-digit code (000000-999999)
     fn generate_6_digit_code() -> String {
-        let mut rng = rand::thread_rng();
-        let num = rng.gen_range(0..=999999);
+        let num = OsRng.gen_range(0..=999999);
         format!("{:06}", num)
     }
 
@@ -59,7 +58,7 @@ impl CodeGenerator {
     pub async fn release_code_lock(state: &AppState, code: &str) -> Result<()> {
         let lock_key = format!("code_lock:{}", code);
         let mut conn = state.redis.get().await.map_err(|e| AppError::Redis(e.to_string()))?;
-        conn.del(&lock_key).await.map_err(|e| AppError::Redis(e.to_string()))?;
+        conn.del::<_, ()>(&lock_key).await.map_err(|e| AppError::Redis(e.to_string()))?;
         Ok(())
     }
 }
