@@ -185,7 +185,7 @@ pub async fn join_session(
         ws_path,
         updated_session.session_id,
         receiver_client_id,
-        ws_token
+        urlencoding::encode(&ws_token)
     );
 
     Ok(Json(JoinSessionResponse {
