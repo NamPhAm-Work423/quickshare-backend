@@ -27,6 +27,11 @@ pub struct JoinSessionRequest {
     pub code: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DownloadByCodeRequest {
+    pub code: String,
+}
+
 // Response DTOs
 #[derive(Debug, Serialize)]
 pub struct CreateSessionResponse {
@@ -43,6 +48,15 @@ pub struct JoinSessionResponse {
     pub ws_url: String,
     pub ice_servers: IceServersConfig,
     pub peer_info: PeerInfo,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DownloadByCodeResponse {
+    pub r#type: String,  // 'file' or 'text'
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,  // for files
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,  // for text
 }
 
 #[derive(Debug, Serialize)]

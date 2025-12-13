@@ -2,8 +2,8 @@ use crate::controllers::websocket::generate_ws_token;
 use crate::error::{AppError, Result};
 use crate::extractors::extract_client_ip;
 use crate::models::api::{
-    CreateSessionRequest, CreateSessionResponse, IceServer, IceServersConfig, JoinSessionRequest,
-    JoinSessionResponse, PeerInfo,
+    CreateSessionRequest, CreateSessionResponse, DownloadByCodeRequest, DownloadByCodeResponse,
+    IceServer, IceServersConfig, JoinSessionRequest, JoinSessionResponse, PeerInfo,
 };
 use crate::models::session::Session;
 use crate::services::{
@@ -197,6 +197,36 @@ pub async fn join_session(
             creator_client_id: updated_session.creator_client_id,
         },
     }))
+}
+
+/// Download session info by code (for receiving files)
+pub async fn download_by_code(
+    State(router_state): State<crate::routes::RouterState>,
+    _headers: HeaderMap,
+    Json(req): Json<DownloadByCodeRequest>,
+) -> Result<Json<DownloadByCodeResponse>> {
+    let state = &router_state.app_state;
+
+    // Validate code format
+    if req.code.len() != 6 || !req.code.chars().all(|c| c.is_ascii_digit()) {
+        return Err(AppError::InvalidCode);
+    }
+
+    // Get session by code
+    let session = SessionService::get_session_by_code(&state, &req.code).await?;
+
+    // Check if session has metadata
+    if let Some(metadata) = &session.metadata {
+        // Return file info
+        Ok(Json(DownloadByCodeResponse {
+            r#type: "file".to_string(),
+            url: None, // No direct URL - files are transferred via WebRTC
+            content: None,
+        }))
+    } else {
+        // No metadata - this might be a text session or error
+        Err(AppError::BadRequest("No file metadata found for this session".to_string()))
+    }
 }
 
 /// Build ICE servers configuration from config
