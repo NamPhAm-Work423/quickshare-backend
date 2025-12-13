@@ -191,6 +191,21 @@ async fn handle_websocket_stream(
 ) {
     let (mut sender, mut recv) = socket.split();
 
+    // Notify other participants that a new peer has connected
+    let peer_connected_msg = serde_json::json!({
+        "type": "peer_connected",
+        "client_id": client_id
+    }).to_string();
+    
+    if let Err(e) = conn_manager
+        .broadcast_to_session(&session_id, &client_id, &peer_connected_msg)
+        .await
+    {
+        warn!("Failed to broadcast peer_connected: {}", e);
+    } else {
+        info!("Broadcast peer_connected for client {} in session {}", client_id, session_id);
+    }
+
     // Get configuration values
     let max_message_size = state.config.websocket.max_message_size_bytes;
     let heartbeat_interval = Duration::from_secs(state.config.websocket.heartbeat_interval_seconds);
@@ -363,24 +378,15 @@ async fn handle_websocket_stream(
     // Unregister connection
     conn_manager.unregister(&session_id, &client_id).await;
 
-    // Cleanup session in Redis if no active connections remain and session is not used
+    // NOTE: We intentionally do NOT delete the session when WebSocket disconnects.
+    // The session should remain available for reconnection or for the receiver to join.
+    // Redis TTL will handle automatic cleanup when the session expires.
+    // This prevents the bug where sender temporarily loses connection and session gets deleted
+    // before receiver can join with the correct code.
+    
     if !conn_manager.has_active_connections(&session_id).await {
-        // Check if session exists and is not used before cleanup
-        match SessionService::get_session(&state, &session_id).await {
-            Ok(session) => {
-                // Only cleanup if session is not used and has no active connections
-                if !session.used {
-                    if let Err(e) = SessionService::delete_session(&state, &session_id).await {
-                        warn!("Failed to cleanup session {} after disconnect: {}", session_id, e);
-                    } else {
-                        info!("Cleaned up unused session {} after all connections closed", session_id);
-                    }
-                }
-            }
-            Err(_) => {
-                // Session already deleted or expired, nothing to cleanup
-            }
-        }
+        info!("All connections closed for session {}, session will expire via Redis TTL", session_id);
     }
 }
+
 
