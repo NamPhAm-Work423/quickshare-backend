@@ -35,12 +35,16 @@ pub fn create_router(state: AppState, conn_manager: ConnectionManager) -> Router
 
     Router::new()
         .route("/health", get(health::health_check))
-        .route("/api/session/create", 
+        .route("/api/session/create",
             on(MethodFilter::POST, session::create_session)
                 .on(MethodFilter::OPTIONS, handle_options)
         )
-        .route("/api/session/join", 
+        .route("/api/session/join",
             on(MethodFilter::POST, session::join_session)
+                .on(MethodFilter::OPTIONS, handle_options)
+        )
+        .route("/api/session/download",
+            on(MethodFilter::POST, session::download_by_code)
                 .on(MethodFilter::OPTIONS, handle_options)
         )
         .route("/ws", get(websocket::handle_websocket))
