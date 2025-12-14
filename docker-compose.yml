@@ -1,4 +1,10 @@
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -8,19 +14,5 @@ services:
     env_file:
       - ./.env
     depends_on:
-      - coturn
+      - redis
     restart: unless-stopped
-
-  coturn:
-    image: coturn/coturn:latest
-    ports:
-      - "3478:3478/udp"
-      - "3478:3478/tcp"
-    environment:
-      - TURN_USERNAME=${TURN_USERNAME:-quickshare}
-      - TURN_PASSWORD=${TURN_PASSWORD:-change-me-in-production}
-    volumes:
-      - ./coturn/turnserver.conf:/etc/turnserver.conf:ro
-    command: turnserver -c /etc/turnserver.conf
-    restart: unless-stopped
-

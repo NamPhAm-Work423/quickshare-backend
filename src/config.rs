@@ -1,6 +1,5 @@
-use serde::{Deserialize, Deserializer, Serialize};
-use serde::de::{self, Visitor};
-use std::fmt;
+use serde::{Deserialize, Serialize};
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Config {
@@ -12,8 +11,8 @@ pub struct Config {
     pub session: SessionConfig,
     #[serde(default = "default_rate_limit")]
     pub rate_limit: RateLimitConfig,
-    #[serde(default = "default_turn")]
-    pub turn: TurnConfig,
+    #[serde(default = "default_cloudflare_turn")]
+    pub cloudflare_turn: CloudflareTurnConfig,
     #[serde(default = "default_cors")]
     pub cors: CorsConfig,
     #[serde(default = "default_websocket")]
@@ -57,10 +56,11 @@ fn default_rate_limit() -> RateLimitConfig {
     }
 }
 
-fn default_turn() -> TurnConfig {
-    TurnConfig {
-        stun_servers: vec!["stun:stun.l.google.com:19302".to_string()],
-        turn_servers: vec![],
+fn default_cloudflare_turn() -> CloudflareTurnConfig {
+    CloudflareTurnConfig {
+        token_id: String::new(),
+        api_token: String::new(),
+        credential_ttl: 86400, // 24 hours
     }
 }
 
@@ -149,55 +149,25 @@ pub struct RateLimitConfig {
     pub ws_messages_per_minute: u32,
 }
 
+/// Cloudflare TURN server configuration
+/// Uses Cloudflare's managed TURN service with short-lived credentials
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TurnConfig {
-    #[serde(deserialize_with = "deserialize_string_vec")]
-    pub stun_servers: Vec<String>,
+pub struct CloudflareTurnConfig {
+    /// Cloudflare TURN Token ID
     #[serde(default)]
-    pub turn_servers: Vec<TurnServer>,
+    pub token_id: String,
+    
+    /// Cloudflare TURN API Token (secret)
+    #[serde(default)]
+    pub api_token: String,
+    
+    /// Credential TTL in seconds (default: 86400 = 24 hours, max: 86400)
+    #[serde(default = "default_credential_ttl")]
+    pub credential_ttl: u64,
 }
 
-/// Custom deserializer for Vec<String> from comma-separated string or array
-fn deserialize_string_vec<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    struct StringVecVisitor;
-
-    impl<'de> Visitor<'de> for StringVecVisitor {
-        type Value = Vec<String>;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-            formatter.write_str("a comma-separated string or an array of strings")
-        }
-
-        fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-        where
-            E: de::Error,
-        {
-            Ok(value.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect())
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: serde::de::SeqAccess<'de>,
-        {
-            let mut vec = Vec::new();
-            while let Some(elem) = seq.next_element()? {
-                vec.push(elem);
-            }
-            Ok(vec)
-        }
-    }
-
-    deserializer.deserialize_any(StringVecVisitor)
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TurnServer {
-    pub urls: Vec<String>,
-    pub username: String,
-    pub credential: String,
+fn default_credential_ttl() -> u64 {
+    86400 // 24 hours
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -264,9 +234,6 @@ impl Config {
         }
         if config.rate_limit.join_attempts_per_ip == 0 {
             config.rate_limit = default_rate_limit();
-        }
-        if config.turn.stun_servers.is_empty() {
-            config.turn = default_turn();
         }
         if config.cors.allowed_origin.is_empty() {
             config.cors = default_cors();

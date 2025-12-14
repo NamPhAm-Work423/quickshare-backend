@@ -67,7 +67,7 @@ pub async fn create_session(
     CodeGenerator::release_code_lock(&state, &code).await?;
 
     // Build ICE servers config
-    let ice_servers = build_ice_servers(&state);
+    let ice_servers = build_ice_servers(&state).await;
 
     // Build WebSocket URL from config
     let mut base_url = state.config.websocket.base_url.clone();
@@ -164,7 +164,7 @@ pub async fn join_session(
     let ws_token = generate_ws_token(&state, &updated_session.session_id, &receiver_client_id)?;
 
     // Build ICE servers config
-    let ice_servers = build_ice_servers(&state);
+    let ice_servers = build_ice_servers(&state).await;
 
     // Build WebSocket URL from config
     let mut base_url = state.config.websocket.base_url.clone();
@@ -229,27 +229,49 @@ pub async fn download_by_code(
     }
 }
 
-/// Build ICE servers configuration from config
-fn build_ice_servers(state: &AppState) -> IceServersConfig {
-    let mut ice_servers = Vec::new();
-
-    // Add STUN servers
-    for stun_url in &state.config.turn.stun_servers {
-        ice_servers.push(IceServer {
-            urls: vec![stun_url.clone()],
+/// Build ICE servers configuration from Cloudflare TURN API
+async fn build_ice_servers(state: &AppState) -> IceServersConfig {
+    let config = &state.config.cloudflare_turn;
+    
+    // If Cloudflare credentials are configured, fetch from API
+    if !config.token_id.is_empty() && !config.api_token.is_empty() {
+        match crate::services::cloudflare_turn::CloudflareTurnService::get_credentials(
+            &config.token_id,
+            &config.api_token,
+            config.credential_ttl,
+        )
+        .await
+        {
+            Ok(credentials) => {
+                let ice_server = IceServer {
+                    urls: credentials.ice_servers.urls,
+                    username: Some(credentials.ice_servers.username),
+                    credential: Some(credentials.ice_servers.credential),
+                };
+                return IceServersConfig {
+                    ice_servers: vec![ice_server],
+                };
+            }
+            Err(e) => {
+                tracing::error!("Failed to get Cloudflare TURN credentials: {}", e);
+                // Fall through to use fallback STUN servers
+            }
+        }
+    } else {
+        tracing::warn!("Cloudflare TURN not configured - using STUN-only fallback");
+    }
+    
+    // Fallback: Use public STUN servers only (will not work across NAT)
+    let fallback_stun = vec![
+        "stun:stun.cloudflare.com:3478".to_string(),
+        "stun:stun.l.google.com:19302".to_string(),
+    ];
+    
+    IceServersConfig {
+        ice_servers: vec![IceServer {
+            urls: fallback_stun,
             username: None,
             credential: None,
-        });
+        }],
     }
-
-    // Add TURN servers
-    for turn_server in &state.config.turn.turn_servers {
-        ice_servers.push(IceServer {
-            urls: turn_server.urls.clone(),
-            username: Some(turn_server.username.clone()),
-            credential: Some(turn_server.credential.clone()),
-        });
-    }
-
-    IceServersConfig { ice_servers }
 }
