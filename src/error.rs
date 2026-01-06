@@ -14,7 +14,7 @@ pub enum AppError {
     #[error("Redis error: {0}")]
     Redis(String),
 
-    #[error("Session not found")]
+    #[error("Không tìm thấy mã")]
     SessionNotFound,
 
     #[error("Session expired")]
@@ -56,7 +56,7 @@ impl IntoResponse for AppError {
                 tracing::error!("Redis error: {}", e);
                 (StatusCode::INTERNAL_SERVER_ERROR, format!("Database error: {}", e))
             }
-            AppError::SessionNotFound => (StatusCode::NOT_FOUND, "Session not found".to_string()),
+            AppError::SessionNotFound => (StatusCode::NOT_FOUND, "Không tìm thấy mã".to_string()),
             AppError::SessionExpired => (StatusCode::GONE, "Session expired".to_string()),
             AppError::SessionAlreadyUsed => (StatusCode::GONE, "Session already used".to_string()),
             AppError::InvalidCode => (StatusCode::BAD_REQUEST, "Invalid code".to_string()),

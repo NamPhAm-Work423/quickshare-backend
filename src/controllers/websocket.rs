@@ -145,7 +145,7 @@ pub async fn handle_websocket(
         Err(_) => {
             return axum::response::Response::builder()
                 .status(404)
-                .body("Session not found".into())
+                .body("Không tìm thấy mã".into())
                 .unwrap();
         }
     };
